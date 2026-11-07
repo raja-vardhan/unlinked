@@ -64,11 +64,13 @@ type Server struct {
 	revocations []Revocation
 	issuedCount int
 	log         *web.RequestLog
+	keepShadow  bool
 }
 
 // New loads or creates the issuer key and publishes the first revocation epoch.
-func New(dataDir, mirrorDir, trusteeURL string, log *web.RequestLog) (*Server, error) {
-	s := &Server{mirrorDir: mirrorDir, trusteeURL: trusteeURL, log: log}
+// keepShadow models a cheating state for the console's attack. Real issuers wouldn't have it.
+func New(dataDir, mirrorDir, trusteeURL string, log *web.RequestLog, keepShadow bool) (*Server, error) {
+	s := &Server{mirrorDir: mirrorDir, trusteeURL: trusteeURL, log: log, keepShadow: keepShadow}
 	if err := os.MkdirAll(mirrorDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -166,22 +168,24 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		IssuedAt:   time.Now().UTC().Format(time.RFC3339),
 	})
 	coreSig := core.SigFrom(sig)
-	s.shadow = append(s.shadow, ShadowRecord{
-		Person: req.Name,
-		Values: map[string]string{
-			"credentialHash":   credHash.String(),
-			"holderCommitment": holderCommit.String(),
-			"revocationHandle": revHandle.String(),
-			"revocationToken":  revToken.String(),
-			"signature.r8x":    coreSig.R8x,
-			"signature.r8y":    coreSig.R8y,
-			"signature.s":      coreSig.S,
-			"standard.digest":  stdDigest.String(),
-			"standard.sig.r8x": std.Sig.R8x,
-			"standard.sig.r8y": std.Sig.R8y,
-			"standard.sig.s":   std.Sig.S,
-		},
-	})
+	if s.keepShadow {
+		s.shadow = append(s.shadow, ShadowRecord{
+			Person: req.Name,
+			Values: map[string]string{
+				"credentialHash":   credHash.String(),
+				"holderCommitment": holderCommit.String(),
+				"revocationHandle": revHandle.String(),
+				"revocationToken":  revToken.String(),
+				"signature.r8x":    coreSig.R8x,
+				"signature.r8y":    coreSig.R8y,
+				"signature.s":      coreSig.S,
+				"standard.digest":  stdDigest.String(),
+				"standard.sig.r8x": std.Sig.R8x,
+				"standard.sig.r8y": std.Sig.R8y,
+				"standard.sig.s":   std.Sig.S,
+			},
+		})
+	}
 
 	web.JSON(w, http.StatusOK, map[string]any{
 		"dob":      req.DOB,
@@ -415,6 +419,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, _ *http.Request) {
 		"epoch":       s.epoch,
 		"escrow":      orEmpty(s.escrow),
 		"shadow":      orEmpty(s.shadow),
+		"keepShadow":  s.keepShadow,
 		"revocations": orEmpty(s.revocations),
 		"requests":    orEmpty(s.log.Entries()),
 	})

@@ -10,25 +10,29 @@ for port in 8080 8081 8082 8083 8084 8085 8086; do
   fi
 done
 
-mkdir -p data/mirror logs
+mkdir -p data/mirror data/pids logs
 cp build/circuit/verification_key.json data/mirror/verification_key.json
 # Sites check the mirror's revocation list against the issuer, so start clean.
 rm -f data/mirror/revocation.json data/mirror/issuer.json
 
-pids=()
-cleanup() {
-  kill "${pids[@]}" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
+trap 'bash scripts/stop.sh > /dev/null' EXIT INT TERM
+
+# HONEST_STATE=1 means the state keeps no record for the cheating-state attack.
+state_flags=()
+if [ -n "${HONEST_STATE:-}" ]; then
+  state_flags=(--shadow=false)
+fi
 
 start() {
-  bin/unlinked --role="$1" > "logs/$1.log" 2>&1 &
-  pids+=("$!")
+  local role="$1"
+  shift
+  bin/unlinked --role="$role" "$@" > "logs/$role.log" 2>&1 &
+  echo "$!" > "data/pids/$role.pid"
 }
 
 start trustee
 start mirror
-start state
+start state ${state_flags[@]+"${state_flags[@]}"}
 start wallet
 start site-a
 start site-b
@@ -62,6 +66,11 @@ Ready.
   Red Rock Cellar  http://localhost:8084  (21+, Utah)
   Attacker console http://localhost:8086
 
+Keep this terminal open: the links stop working if it closes.
 Press Ctrl+C to stop.
 EOF
-wait
+# Roles can be stopped or restarted during the demo, so wait until Ctrl+C or
+# 'make stop' rather than exiting when one of them ends.
+while [ -n "$(ls data/pids 2>/dev/null)" ]; do
+  sleep 1
+done

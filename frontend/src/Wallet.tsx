@@ -3,6 +3,7 @@ import type { Config } from './App';
 import {
   buildInput,
   checkIssuer,
+  dateInt,
   checkQuestion,
   holderCommit,
   randomField,
@@ -179,6 +180,8 @@ function Holding({ config, cred, onErase }: { config: Config; cred: Credential; 
         </div>
       </section>
 
+      <CheatTest config={config} cred={cred} />
+
       <section className="card">
         <h2>Revocation code</h2>
         <p>
@@ -195,6 +198,75 @@ function Holding({ config, cred, onErase }: { config: Config; cred: Credential; 
         {status && <p className={isError ? 'bad' : 'good'} role="status">{status}</p>}
       </section>
     </>
+  );
+}
+
+// Lets a skeptic attack their own credential. It skips this wallet's checks and
+// asks the real prover for an 18+ proof, so anything stopping it is the circuit.
+function CheatTest({ config, cred }: { config: Config; cred: Credential }) {
+  const [claimed, setClaimed] = useState('1990-01-01');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; detail?: string } | null>(null);
+
+  async function attempt(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setResult(null);
+    const claim = Number(claimed.replaceAll('-', ''));
+    try {
+      const snapshot = (await (await fetch(`${config.urls.mirror}/revocation.json`, { cache: 'no-store' })).json()) as Snapshot;
+      const today = dateInt(new Date());
+      const request: ProofRequest = {
+        nonce: randomField().toString(),
+        cutoffDate: today - 180000,
+        today,
+        requireUtah: false,
+        minAge: 18,
+        siteTitle: 'Cheat test',
+        wantPseudonym: false,
+      };
+      const built = await buildInput({ ...cred, dob: claim }, request, config.origin, snapshot, { skipWalletChecks: true });
+      if (!built.input) {
+        setResult({ ok: false, text: built.problem ?? 'No proof could be prepared.' });
+        return;
+      }
+      await prove(built.input);
+      setResult({ ok: true, text: 'A proof exists, because this is your real birth date and you are 18 or older.' });
+    } catch (err) {
+      const lying = claim !== cred.dob;
+      setResult({
+        ok: false,
+        text: lying
+          ? 'The circuit refused. The state’s signature covers your real birth date, so it doesn’t match this one.'
+          : 'The circuit refused. Your real birth date doesn’t meet the 18+ cutoff, and no valid proof exists.',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>Try to cheat</h2>
+      <p>
+        Claim any birth date and ask for an 18+ proof. This skips the wallet's own checks and runs the real prover with
+        the state's real signature, so only the math can stop you.
+      </p>
+      <form onSubmit={attempt} className="form inline">
+        <label>
+          Birth date to claim
+          <input type="date" value={claimed} onChange={(e) => setClaimed(e.target.value)} required />
+        </label>
+        <button disabled={busy}>{busy ? 'Trying…' : 'Try to get a proof'}</button>
+      </form>
+      {result && (
+        <div className={result.ok ? 'good' : 'bad'} role="status">
+          <p className="cheat-result">{result.text}</p>
+          {result.detail && <code>{result.detail}</code>}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -20,6 +20,7 @@ type StateSummary = {
   shadow: { person: string }[];
   revocations: { ground: string; at: string; epoch: number }[];
   requests: { method: string; path: string }[];
+  keepShadow: boolean;
 };
 type ReplayResult = { attempts: { name: string; ok: boolean; reason: string }[] };
 
@@ -35,6 +36,7 @@ export function Console({ config }: { config: Config }) {
   const [standard, setStandard] = useState<AttackResult | null>(null);
   const [zk, setZk] = useState<AttackResult | null>(null);
   const [state, setState] = useState<StateSummary | null>(null);
+  const [stateDown, setStateDown] = useState(false);
   const [replay, setReplay] = useState<ReplayResult | null>(null);
   const [error, setError] = useState('');
 
@@ -56,8 +58,9 @@ export function Console({ config }: { config: Config }) {
   const refreshState = useCallback(async () => {
     try {
       setState(await getJson<StateSummary>('/api/state'));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setStateDown(false);
+    } catch {
+      setStateDown(true);
     }
   }, []);
 
@@ -93,7 +96,12 @@ export function Console({ config }: { config: Config }) {
           </div>
           <div className="row">
             <label className="check toggle">
-              <input type="checkbox" checked={malicious} onChange={(e) => setMalicious(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={malicious}
+                disabled={state !== null && !state.keepShadow}
+                onChange={(e) => setMalicious(e.target.checked)}
+              />
               State cheats: add everything it secretly kept
             </label>
             <button className="primary" onClick={() => runAttack(malicious)}>Run attack</button>
@@ -122,8 +130,16 @@ export function Console({ config }: { config: Config }) {
         )}
       </section>
 
-      {state && <StatePanel state={state} zk={zk} standard={standard} />}
+      {stateDown ? (
+        <section className="panel" role="status">
+          <h2>What the state holds and sees</h2>
+          <p className="good"><strong>The state is offline.</strong> Sites can still verify proofs, because they never needed it.</p>
+        </section>
+      ) : (
+        state && <StatePanel state={state} zk={zk} standard={standard} />
+      )}
       <FraudPanel config={config} onDone={refreshState} />
+      <JudgeChecks />
       <UtahMap />
     </>
   );
@@ -265,6 +281,15 @@ function StatePanel({
         </table>
       </div>
       <p className="note">Showing the latest 5 of {state.escrow.length}.</p>
+      {state.keepShadow ? (
+        <p className="note">
+          To give the cheating-state attack real data, this demo state also keeps {state.shadow.length} shadow records of
+          hashes and signatures, with no birth dates. A real issuer wouldn't. Run <code>HONEST_STATE=1 make demo</code> to
+          turn them off.
+        </p>
+      ) : (
+        <p className="note">Running with <code>HONEST_STATE=1</code>: the state keeps no shadow records.</p>
+      )}
     </section>
   );
 }
@@ -311,6 +336,76 @@ function FraudPanel({ config, onDone }: { config: Config; onDone: () => void }) 
         <button>Request revocation</button>
       </form>
       {message && <p className={isError ? 'bad' : 'good'} role="status">{message}</p>}
+    </section>
+  );
+}
+
+const JUDGE_CHECKS: { suspicion: string; test: string; expect: string }[] = [
+  {
+    suspicion: 'The servers keep what I typed and look it up later.',
+    test: 'Issue a credential with a made-up name and birth date, verify, then run make search TEXT="…" for each. Also read the POST body in DevTools.',
+    expect: 'Zero matches at the sites, mirror and disk. Your name appears only in the state’s escrow. Your birth date appears nowhere.',
+  },
+  {
+    suspicion: 'Verification only works because your servers remember me.',
+    test: 'Run make kill-state and make fresh-site, reload Pinecrest Apps, then verify.',
+    expect: 'Accepted, with the state stopped, by a new process with empty memory.',
+  },
+  {
+    suspicion: 'The verifier just says yes.',
+    test: 'Run make check-proof. It uses snarkjs, not this project’s Go code, with no network. You can also copy judge-kit/ to your own laptop.',
+    expect: 'OK! for the real proof, Invalid proof when one number changes.',
+  },
+  {
+    suspicion: 'The math isn’t really enforcing anything.',
+    test: 'In the wallet, use Try to cheat. Claim a false birth date, or issue a credential to a minor and claim the real one.',
+    expect: 'The prover fails with a circuit error, and no proof exists.',
+  },
+  {
+    suspicion: 'You ran the setup, so you could forge proofs.',
+    test: 'Run make stop, then make contribute, and type your own randomness.',
+    expect: 'Setup still verifies and lists your contribution. Forging now needs your secret too.',
+  },
+  {
+    suspicion: 'This laptop isn’t running the code you showed me.',
+    test: 'Clone the public repo and run it on your own laptop, so my machine isn’t involved.',
+    expect: 'The same results, using keys you generated.',
+  },
+];
+
+function JudgeChecks() {
+  return (
+    <section className="panel">
+      <h2>Don't trust this laptop</h2>
+      <p className="lede">
+        Suppose it's a rigged demo that stores what you type. Each test below would expose that, and most use tools from
+        outside this project.
+      </p>
+      <div className="table-wrap">
+        <table className="map">
+          <thead>
+            <tr>
+              <th scope="col">If you suspect</th>
+              <th scope="col">Run this</th>
+              <th scope="col">You should see</th>
+            </tr>
+          </thead>
+          <tbody>
+            {JUDGE_CHECKS.map((row) => (
+              <tr key={row.suspicion}>
+                <td>{row.suspicion}</td>
+                <td>{row.test}</td>
+                <td>{row.expect}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="note">
+        These can't show that a real state deletes what it saw at issuance, or that an untrusted wallet app is honest. The
+        first is limited by design: even if it keeps everything, proofs give it nothing to match. The second is why the
+        wallet is open source and why Utah's law requires wallet choice.
+      </p>
     </section>
   );
 }

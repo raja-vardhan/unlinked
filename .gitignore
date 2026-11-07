@@ -3,6 +3,7 @@ build/
 bin/
 data/
 logs/
+judge-kit/
 frontend/dist/
 frontend/public/zk/*.wasm
 frontend/public/zk/*.zkey

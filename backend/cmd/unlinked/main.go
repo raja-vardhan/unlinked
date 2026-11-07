@@ -31,6 +31,7 @@ func main() {
 	role := flag.String("role", "", "wallet, state, mirror, site-a, site-b, trustee or console")
 	dataDir := flag.String("data", "data", "data directory")
 	dist := flag.String("dist", "frontend/dist", "built frontend directory")
+	shadow := flag.Bool("shadow", true, "state role: keep records for the cheating-state attack")
 	flag.Parse()
 
 	port, ok := ports[*role]
@@ -52,7 +53,7 @@ func main() {
 	case "wallet":
 		web.SPA(mux, *dist, config)
 	case "state":
-		srv, err := state.New(*dataDir+"/state", mirrorDir, url("trustee"), requests)
+		srv, err := state.New(*dataDir+"/state", mirrorDir, url("trustee"), requests, *shadow)
 		if err != nil {
 			log.Fatal(err)
 		}

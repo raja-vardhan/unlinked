@@ -162,6 +162,7 @@ table.map { min-width: 720px; }
 
 .account { margin: 12px 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
 .account h3 { margin-top: 0; }
+.cheat-result { font-weight: 600; margin: 12px 0 4px; }
 
 .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; align-items: flex-start; margin-bottom: 16px; }
 .panel-head > div:first-child { flex: 1 1 380px; }

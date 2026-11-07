@@ -166,6 +166,7 @@ export async function buildInput(
   req: ProofRequest,
   origin: string,
   snapshot: Snapshot,
+  options: { skipWalletChecks?: boolean } = {},
 ): Promise<ProveResult> {
   const tree = buildRevocationTree(snapshot.revoked);
   if (tree.hash.toString() !== snapshot.root) {
@@ -174,12 +175,15 @@ export async function buildInput(
   const handle = BigInt(revocationHandle(cred.revToken));
   const witness = nonMembershipWitness(tree, handle);
   if (!witness) return { input: null, problem: 'This credential has been revoked.' };
-  if (cred.dob > req.cutoffDate) {
-    return { input: null, problem: `You do not meet the ${req.minAge}+ requirement, so no valid proof exists.` };
-  }
-  if (req.today > cred.expiry) return { input: null, problem: 'This credential has expired.' };
-  if (req.requireUtah && !cred.isUtah) {
-    return { input: null, problem: 'This site requires Utah residency, which your credential does not show.' };
+  // The cheat test skips these to show the circuit enforces them too.
+  if (!options.skipWalletChecks) {
+    if (cred.dob > req.cutoffDate) {
+      return { input: null, problem: `You do not meet the ${req.minAge}+ requirement, so no valid proof exists.` };
+    }
+    if (req.today > cred.expiry) return { input: null, problem: 'This credential has expired.' };
+    if (req.requireUtah && !cred.isUtah) {
+      return { input: null, problem: 'This site requires Utah residency, which your credential does not show.' };
+    }
   }
   return {
     problem: null,

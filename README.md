@@ -34,7 +34,7 @@ Wait for `Ready.`, then open these in a browser and **allow pop-ups for the two 
 | Red Rock Cellar (21+, Utah residents) | http://localhost:8084 |
 | Attacker console | http://localhost:8086 |
 
-Press `Ctrl+C` in the terminal to stop. Next time, `make demo` is all you need. Then follow the [three-minute demo](#three-minute-demo).
+**Keep that terminal open.** The links only work while `make demo` is running. Press `Ctrl+C` or run `make stop` to end it. Next time, `make demo` is all you need. Then follow the [three-minute demo](#three-minute-demo).
 
 ### What you need
 
@@ -43,17 +43,18 @@ Press `Ctrl+C` in the terminal to stop. Next time, `make demo` is all you need. 
 | Node.js | 22.18 or newer | Older versions can't run the TypeScript the scripts import |
 | Go | 1.21 or newer | Downloads the Go 1.26 toolchain this project needs on its own |
 | make, curl, bash | Any | Already on most Linux and macOS machines |
-| Browser | A recent Chromium-based one | Chrome, Edge or Brave. Others are untested |
+| Browser | A recent Chromium-based one | Chromium and Brave are tested. Chrome and Edge should work. Others are untested |
 
 You need internet access for the first run, and ports 8080 to 8086 must be free. `make setup` and `make demo` check these tools and tell you what's missing. Keys are generated on your machine in `data/`, which git ignores.
 
-This has been tested on Ubuntu with Chromium. macOS should work but is untested, and there `make offline` runs without network isolation because `unshare` is Linux-only. On Windows, use WSL2 (also untested).
+This has been tested on Ubuntu with Chromium and Brave. macOS should work but is untested, and there `make offline` runs without network isolation because `unshare` is Linux-only. On Windows, use WSL2 (also untested).
 
 ### Other commands
 
 ```bash
 make test     # Go tests, then 23 circuit tests against the real Go signer and verifier
 make offline  # verifies the latest proof from Pinecrest Apps with no network interfaces
+make stop     # stops every role, and is safe to run when nothing is running
 make clean    # deletes generated keys and logs, keeping the circuit setup
 ```
 
@@ -61,7 +62,8 @@ make clean    # deletes generated keys and logs, keeping the circuit setup
 
 | What you see | What to do |
 |---|---|
-| `Port 8080 is already in use` | Another copy is running. Stop it with `Ctrl+C`, or free ports 8080 to 8086 |
+| "This site can't be reached" | The demo isn't running. Run `make demo`, leave that terminal open, and wait for `Ready.` |
+| `Port 8080 is already in use` | Another copy is running. Run `make stop`, then `make demo` |
 | Your browser blocked the wallet window | Allow pop-ups for `localhost:8083` and `localhost:8084`, then click again |
 | The wallet says the key "differs from the published issuer key" | You ran `make clean`, which replaces the keys. Click **Erase from this device** and request a new credential |
 | The wallet says your credential is revoked | Click **Erase from this device** and request a new one, or restart `make demo` to clear the list |
@@ -72,6 +74,18 @@ make clean    # deletes generated keys and logs, keeping the circuit setup
 | Attack results look odd after midnight UTC | Restart `make demo`, so the seeded crowd shares your date |
 
 Restarting `make demo` resets every site log and the revocation list, but keeps your credential valid.
+
+## Need to know: who learns what
+
+Each party learns only what its job requires, and the proof system enforces that rather than a policy.
+
+| Party | Its job | What it learns | What it never learns |
+|---|---|---|---|
+| Holder and wallet | Keep the credential on their device | Their own details | |
+| State (issuer) | Check identity once and sign | Name, birth date and residency, once | Where or when the credential is used |
+| Websites (verifiers) | Get one answer | Yes or no, plus an anonymous per-site ID only if the holder agrees | Name, birth date, address, the state's signature |
+| Public mirror | Publish the revocation list | That someone downloaded it | Which credential or site it was for |
+| Independent trustee | Open the fraud escrow on a court order | One revocation token | How that credential was used |
 
 ## Why a ZK proof is needed
 
@@ -89,6 +103,26 @@ A ZK proof shows "I hold a validly signed credential and my birth date is before
 6. **Probe.** Click **Attack: probe for a birth date**. The wallet refuses, because an arbitrary cutoff would let a site find a birth date in about 16 yes-or-no questions.
 7. **Moderate.** Click **Open an anonymous account** twice to see one stable ID and a visit count, then **Ban this account**. The next attempt is rejected without anyone learning who it was. Red Rock Cellar gets a different ID.
 8. **Revoke.** Click **Revoke at my request** in the wallet, then try to verify. No proof can be made, and the site hears only "declined". The state's request log shows no verification traffic.
+
+## Don't trust this laptop
+
+A fair question from anyone watching a demo: is this software just storing what I type and looking it up? You don't have to take that on trust. Each check below would expose a rigged demo, and most use tools from outside this project. Run them while `make demo` is running.
+
+| If you suspect | Run this | You should see |
+|---|---|---|
+| The servers keep what I typed and look it up later | Issue a credential with a made-up name and birth date, verify on a site, then `make search TEXT="Your Made-Up Name"` and `make search TEXT=1987-02-14`. Read the `POST /api/verify` body in your browser's DevTools too | 0 matches at the sites, mirror and disk. The name appears only in the state's records, beside an encrypted token. The birth date appears nowhere |
+| Verification only works because your servers remember me | `make kill-state`, then `make fresh-site`, then reload Pinecrest Apps and verify | Accepted, with the state stopped, by a new process with empty memory |
+| The verifier just says yes | `make check-proof`, which uses snarkjs instead of this project's Go code, with no network | `OK!` for the real proof, `Invalid proof` when one number changes. It leaves three public files in `judge-kit/` to re-check on your own laptop |
+| The math isn't really enforcing anything | In the wallet, use **Try to cheat**. Claim a false birth date, or issue a credential to a minor and claim the real one | The prover fails with a circuit error, so no proof exists. This skips the wallet's own checks |
+| You ran the setup, so you could forge proofs | `make stop`, then `make contribute`, then type your own randomness | The setup still verifies and lists your contribution. Forging now needs your secret too |
+| This laptop isn't running the code you showed me | Clone this repo and run it on your own laptop | The same results, with keys you generated |
+
+In our run in Brave with a made-up identity, the browser sent 46 requests and exactly one carried the name or birth date: the issuance request to the state. Verification needs nothing else because a proof check is a pure calculation over three public things: the verification key, which was fixed before you typed anything, the public values, and the proof. None of them identifies a person, so there's nothing to look up with.
+
+What these checks can't show:
+
+- **That a real state deletes what it saw.** The demo state also keeps "shadow" records of hashes and signatures, with no birth dates, so the cheating-state attack has real data. `HONEST_STATE=1 make demo` turns them off. Either way, proofs give the state nothing to match them against.
+- **That a wallet app is honest.** A malicious wallet could leak what it holds, because it has to hold it. That's why this one is open source, and why Utah's law requires wallet choice.
 
 ## How it works
 
@@ -134,7 +168,7 @@ The state must be able to revoke for fraud under 301(5), but it shouldn't keep a
 4. For fraud or issuance error, the trustee decrypts the token against a court order reference. Revocation adds a hash to a public list and says nothing about the holder's past use.
 5. To check status, the wallet downloads the whole list from the mirror and builds its witness locally. Asking the state about one entry would be a phone-home by another name.
 
-Nobody outside can prove the state really deleted anything. That's why the attack console also models a state that keeps everything: the signature and credential hash it kept never appear in a proof, so it gains nothing it can match against. The "shadow" record in [state.go](backend/internal/state/state.go) exists only to give that attack real data, and an honest issuer wouldn't write it.
+Nobody outside can prove the state really deleted anything. That's why the attack console also models a state that keeps everything: the signature and credential hash it kept never appear in a proof, so it gains nothing it can match against. The "shadow" record in [state.go](backend/internal/state/state.go) exists only to give that attack real data, and `HONEST_STATE=1` turns it off.
 
 ### Attacks it handles
 
