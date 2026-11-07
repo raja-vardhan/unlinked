@@ -1,0 +1,9 @@
+node_modules/
+build/
+bin/
+data/
+logs/
+frontend/dist/
+frontend/public/zk/*.wasm
+frontend/public/zk/*.zkey
+frontend/public/zk/snarkjs.min.js
